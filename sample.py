@@ -1,78 +1,98 @@
-import os
-from pdf2docx import Converter
+import json
+from html import escape
 from docx import Document
 from pptx import Presentation
-from docx.table import Table
+import pdfplumber
 from bs4 import BeautifulSoup
-from html import escape
 
+def table_to_json(table):
+    headers = []
+    data = []
 
-# convert to html
+    # Extract table headers
+    for th in table.find_all('th'):
+        headers.append(th.get_text(strip=True))
 
-def pdf_to_docx(pdf_path, output_dir):
-    base_name = os.path.basename(pdf_path).replace('.pdf', '')
-    docx_path = os.path.join(output_dir, base_name + '.docx')
+    # Extract table rows
+    for tr in table.find_all('tr'):
+        row = {}
+        for i, td in enumerate(tr.find_all(['td', 'th'])):
+            # Use header if available, otherwise use index
+            header = headers[i] if i < len(headers) else str(i)
+            row[header] = td.get_text(strip=True)
+        if row:
+            data.append(row)
+    
+    return json.dumps(data, indent=4)
 
-    # Convert PDF to DOCX
-    cv = Converter(pdf_path)
-    cv.convert(docx_path, start=0, end=None)
-    cv.close()
+def replace_tables_with_json(html_content):
+    soup = BeautifulSoup(html_content, 'lxml')
 
-    # Load the DOCX and remove footnotes and headnotes
-    doc = Document(docx_path)
-    clean_doc = remove_footnotes_and_headnotes(doc)
-    clean_doc.save(docx_path)  # Overwrite the original DOCX file
+    for table in soup.find_all('table'):
+        json_obj = table_to_json(table)
+        json_tag = soup.new_tag("pre")
+        json_tag.string = json_obj
+        table.replace_with(json_tag)
 
-    return docx_path
+    return str(soup)
 
-def remove_footnotes_and_headnotes(doc):
-    new_doc = Document()
+def pdf_to_html(pdf_path):
+    with pdfplumber.open(pdf_path) as pdf:
+        html = '<html><body>'
+        
+        for page in pdf.pages:
+            # Extract text from the entire page (no cropping)
+            page_text = page.extract_text(x_tolerance=1, y_tolerance=3, layout=True)
+            if page_text and not page.extract_tables():
+                html += f'<pre>{escape(page_text)}</pre>'
+            
+            # Extract tables from the page and convert to JSON directly
+            for table in page.extract_tables():
+                # Build table HTML for conversion
+                table_data = [row for row in table]
 
-    # Copy all the paragraphs and tables from the original document
-    for element in doc.element.body:
-        new_doc.element.body.append(element)
-
-    for section in new_doc.sections:
-        # Remove header content
-        for paragraph in section.header.paragraphs:
-            p = paragraph._element
-            p.getparent().remove(p)
-
-        # Remove footer content
-        for paragraph in section.footer.paragraphs:
-            p = paragraph._element
-            p.getparent().remove(p)
-
-    return new_doc
+                # Convert the table data to JSON
+                json_obj = json.dumps(table_data, indent=4)
+                html += f'<pre>{json_obj}</pre>'
+                
+        html += '</body></html>'
+    
+    return html
 
 def docx_to_html(docx_path):
     doc = Document(docx_path)
     html = '<html><body>'
-
-    def extract_text_from_cell(cell):
-        paragraphs = cell.paragraphs
-        return ''.join(escape(p.text) for p in paragraphs)
-
-    def table_to_html(table):
-        table_html = '<table>'
-        for row in table.rows:
-            table_html += '<tr>'
-            for cell in row.cells:
-                cell_text = extract_text_from_cell(cell)
-                table_html += f'<td>{cell_text}</td>'
-            table_html += '</tr>'
-        table_html += '</table>'
-        return table_html
+    
+    # Keep track of tables to remove
+    tables_to_remove = []
 
     for element in doc.element.body:
         if element.tag.endswith('p'):
             para = element
             html += f'<p>{escape(para.text)}</p>'
         elif element.tag.endswith('tbl'):
-            table = Table(element, doc)
-            table_html = table_to_html(table)
-            json_obj = table_to_json(BeautifulSoup(table_html, 'lxml').find('table'))
+            # Extract table data
+            table_html = '<table>'
+            table = element
+            table_data = []
+
+            for row in table.xpath(".//w:tr"):
+                cells = []
+                for cell in row.xpath(".//w:tc"):
+                    cell_text = ''.join([escape(p.text) for p in cell.xpath(".//w:p") if p.text is not None])
+                    cells.append(cell_text)
+                table_data.append(cells)
+
+            # Add table to remove list
+            tables_to_remove.append(table)
+
+            # Convert table data to JSON and insert it into HTML
+            json_obj = json.dumps(table_data, indent=4)
             html += f'<pre>{json_obj}</pre>'
+
+    # Remove tables from the document
+    for table in tables_to_remove:
+        table.getparent().remove(table)
 
     html += '</body></html>'
     return html
@@ -80,42 +100,62 @@ def docx_to_html(docx_path):
 def pptx_to_html(pptx_path):
     prs = Presentation(pptx_path)
     html = '<html><body>'
-
+    
     for slide in prs.slides:
         for shape in slide.shapes:
             if hasattr(shape, 'text'):
                 html += f'<p>{escape(shape.text)}</p>'
-
+    
     html += '</body></html>'
     return html
 
 def file_to_html(file_path, html_path):
     if file_path.endswith('.pdf'):
-        output_dir = os.path.dirname(html_path)
-        # Convert PDF to DOCX
-        docx_path = pdf_to_docx(file_path, output_dir)
-        print(f'PDF converted to DOCX: {docx_path}')
-        html = docx_to_html(docx_path)
+        html = pdf_to_html(file_path)
     elif file_path.endswith('.docx'):
         html = docx_to_html(file_path)
     elif file_path.endswith('.pptx'):
         html = pptx_to_html(file_path)
     else:
         raise ValueError("Unsupported file type. Please provide a .pdf, .docx, or .pptx file.")
-
+    
     # Write HTML to file
     with open(html_path, 'w', encoding='utf-8') as html_file:
         html_file.write(html)
     return html
 
 # Example usage
-file_to_html('data/N_PR_8715_0026.pdf', 'data/converted/converted.html')
+file_to_html('data/N_PR_8715_0026.pdf', 'data/converted/PDF-converted.html')
 #file_to_html('data/N_PR_8715_0026.docx', 'data/converted/DOCX-converted.html')
-# file_to_html('data/Chocolate Cake Recipe.pptx', 'data/converted/PPTX-converted.html')
+#file_to_html('data/Chocolate Cake Recipe.pptx', 'data/converted/PPTX-converted.html')
+
+def html_to_text(html_path, txt_path):
+    # Read the HTML file
+    with open(html_path, 'r', encoding='utf-8') as file:
+        html_content = file.read()
+    
+    # Parse the HTML content with BeautifulSoup
+    soup = BeautifulSoup(html_content, 'lxml')
+    
+    # Extract text from all <pre> and <p> tags
+    text_content = ""
+    for tag in soup.find_all(['pre', 'p']):
+        text_content += tag.get_text() + "\n"
+    
+    # Write the extracted text to a .txt file
+    with open(txt_path, 'w', encoding='utf-8') as txt_file:
+        txt_file.write(text_content)
+
+# Example usage
+html_to_text('data/converted/PDF-converted.html', 'data/converted/converted.txt')
+
+
+
 
 
 
 # Create chunks grouped by similarity
+
 from unstructured.partition.text import partition_text
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -185,6 +225,8 @@ for cluster_idx, cluster in enumerate(grouped_paragraphs):
         print(paragraph)
 
 
+
+
 # Add descriptive labels
 
 import os
@@ -240,3 +282,8 @@ for chunk in chunks:
         continue
     
     chunksDict[response_dict["description"]] = response_dict["content"]
+
+
+for key, value in chunksDict.items():
+   print(f"Description: {key}")
+   print(f"Content: {value}\n")
