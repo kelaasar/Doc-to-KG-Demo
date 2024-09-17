@@ -4,7 +4,9 @@ from docx import Document
 from pptx import Presentation
 import pdfplumber
 from bs4 import BeautifulSoup
+import os
 
+# ---------------------------------------Doc to HTML---------------------------------------
 def table_to_json(table):
     headers = []
     data = []
@@ -149,12 +151,7 @@ def html_to_text(html_path, txt_path):
 # Example usage
 html_to_text('data/converted/PDF-converted.html', 'data/converted/converted.txt')
 
-
-
-
-
-
-# Create chunks grouped by similarity
+# ---------------------------------------Create chunks grouped by similarity---------------------------------------
 
 from unstructured.partition.text import partition_text
 from sentence_transformers import SentenceTransformer
@@ -226,13 +223,9 @@ for cluster_idx, cluster in enumerate(grouped_paragraphs):
 
 
 
-
-# Add descriptive labels
-
-import os
+# ---------------------------------------Generate Descriptive Labels For Each Chunk---------------------------------------
 from openai import OpenAI
 from dotenv import load_dotenv, find_dotenv
-import json
 
 # load the .env file
 _ = load_dotenv(find_dotenv())
@@ -283,7 +276,7 @@ for chunk in chunks:
     
     chunksDict[response_dict["description"]] = response_dict["content"]
 
-
+# print chunks
 for key, value in chunksDict.items():
    print(f"Description: {key}")
    print(f"Content: {value}\n")
