@@ -144,16 +144,33 @@ def html_to_text(html_path, txt_path):
         txt_file.write(text_content)
 
 # Get input file
+# Set up the input and output paths
 input_directory = 'input/'
 htmlpath = 'output/converted.html'
 outfile = 'output/converted.txt'
-files = os.listdir(input_directory)
-input_path = files[0] if files else None
 
+files = os.listdir(input_directory)
+
+if not files:
+    raise FileNotFoundError(f"No files found in the directory: {input_directory}")
+
+# Get the first file in the directory and construct the full path
+input_path = os.path.join(input_directory, files[0])
+
+# Print the input path for debugging
+print(f"Input file path: {input_path}")
+
+# Check if the input file exists
+if not os.path.isfile(input_path):
+    raise FileNotFoundError(f"The file {input_path} does not exist.")
+
+# Convert the file to HTML
 file_to_html(input_path, htmlpath)
+
+# Convert HTML to text
 html_to_text(htmlpath, outfile)
 
-# delete converted.html
+# Delete the intermediate HTML file
 if os.path.isfile(htmlpath):
     os.remove(htmlpath)
 
