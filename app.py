@@ -154,20 +154,12 @@ files = os.listdir(input_directory)
 if not files:
     raise FileNotFoundError(f"No files found in the directory: {input_directory}")
 
-# Get the first file in the directory and construct the full path
 input_path = os.path.join(input_directory, files[0])
-
-# Print the input path for debugging
 print(f"Input file path: {input_path}")
-
-# Check if the input file exists
 if not os.path.isfile(input_path):
     raise FileNotFoundError(f"The file {input_path} does not exist.")
 
-# Convert the file to HTML
 file_to_html(input_path, htmlpath)
-
-# Convert HTML to text
 html_to_text(htmlpath, outfile)
 
 # Delete the intermediate HTML file
@@ -304,7 +296,7 @@ for i, chunk in enumerate(chunks):
 # Write the output to a text file
 output_path = 'output/output.txt'
 
-with open(output_path, 'w') as f:
+with open(output_path, 'w', encoding='utf-8') as f:
     for chunk_id, chunk_data in chunksDict.items():
         f.write(f"Chunk {chunk_id}\n")
         f.write(f"Description: {chunk_data['description']}\n")
