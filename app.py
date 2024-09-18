@@ -126,11 +126,6 @@ def file_to_html(file_path, html_path):
         html_file.write(html)
     return html
 
-# Example usage
-file_to_html('data/N_PR_8715_0026.pdf', 'data/converted/PDF-converted.html')
-#file_to_html('data/N_PR_8715_0026.docx', 'data/converted/DOCX-converted.html')
-#file_to_html('data/Chocolate Cake Recipe.pptx', 'data/converted/PPTX-converted.html')
-
 def html_to_text(html_path, txt_path):
     # Read the HTML file
     with open(html_path, 'r', encoding='utf-8') as file:
@@ -148,17 +143,27 @@ def html_to_text(html_path, txt_path):
     with open(txt_path, 'w', encoding='utf-8') as txt_file:
         txt_file.write(text_content)
 
-# Example usage
-html_to_text('data/converted/PDF-converted.html', 'data/converted/converted.txt')
+# Get input file
+input_directory = 'input/'
+htmlpath = 'output/converted.html'
+outfile = 'output/converted.txt'
+files = os.listdir(input_directory)
+input_path = files[0] if files else None
+
+file_to_html(input_path, htmlpath)
+html_to_text(htmlpath, outfile)
+
+# delete converted.html
+if os.path.isfile(htmlpath):
+    os.remove(htmlpath)
 
 # ---------------------------------------Create chunks grouped by similarity---------------------------------------
-
 from unstructured.partition.text import partition_text
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
-file_path = "data/converted/converted.txt"
+file_path = outfile
 max_chars_per_chunk = 5000  # Set a hard-coded max character limit for each chunk
 num_clusters = 20  # Desired number of clusters
 
@@ -216,10 +221,10 @@ while current_num_clusters > num_clusters:
     current_num_clusters -= 1
 
 # Print clusters
-for cluster_idx, cluster in enumerate(grouped_paragraphs):
-    print(f"\nCluster {cluster_idx}:")
-    for paragraph in cluster['paragraphs']:
-        print(paragraph)
+#for cluster_idx, cluster in enumerate(grouped_paragraphs):
+#    print(f"\nCluster {cluster_idx}:")
+#    for paragraph in cluster['paragraphs']:
+#        print(paragraph)
 
 
 
@@ -227,10 +232,10 @@ for cluster_idx, cluster in enumerate(grouped_paragraphs):
 from openai import OpenAI
 from dotenv import load_dotenv, find_dotenv
 
-# load the .env file
+# Load the .env file
 _ = load_dotenv(find_dotenv())
 client = OpenAI(
-   api_key=os.environ.get("OPENAI_API_KEY")
+    api_key=os.environ.get("OPENAI_API_KEY")
 )
 
 model = "gpt-4o"
@@ -248,7 +253,7 @@ def get_summary(client, model, messages, temperature):
 
 chunksDict = {}
 
-for chunk in chunks:
+for i, chunk in enumerate(chunks):
     prompt = f"""#
     For the given chunk, I want you to return a dictionary of two elements, the key being a short descriptive label of the chunk, and the value being the chunk content. 
     Below is the output schema:
@@ -274,9 +279,18 @@ for chunk in chunks:
         print("Failed to parse response as JSON:", e)
         continue
     
-    chunksDict[response_dict["description"]] = response_dict["content"]
+    chunksDict[i] = {
+        "description": response_dict["description"],
+        "content": response_dict["content"]
+    }
 
-# print chunks
-for key, value in chunksDict.items():
-   print(f"Description: {key}")
-   print(f"Content: {value}\n")
+# Write the output to a text file
+output_path = 'output/output.txt'
+
+with open(output_path, 'w') as f:
+    for chunk_id, chunk_data in chunksDict.items():
+        f.write(f"Chunk {chunk_id}\n")
+        f.write(f"Description: {chunk_data['description']}\n")
+        f.write(f"Content: {chunk_data['content']}\n\n")
+
+print(f"Output has been written to {output_path}")
